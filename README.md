@@ -1,3 +1,8 @@
+# Instalações para avaliação com outras métricass
+
+pip install sacrebleu bert-score easse nltk pandas textstat spacy
+python -m spacy download pt_core_news_sm
+
 Com base em um modelo já treinado, aplicação do modelo para medir a probabilidade se cada texto é sarcástico ou não, comparando antes e depois das transformações.
 
 # Link do Modelo no Drive

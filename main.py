@@ -1,59 +1,107 @@
 import pandas as pd
-from sentence_transformers import SentenceTransformer
-import joblib
+import sacrebleu
+from bert_score import score as bertscore
+import textstat
+import spacy
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sentence_transformers import SentenceTransformer, util
+from rouge_score import rouge_scorer
+from tqdm import tqdm
 import os
-from sklearn.preprocessing import normalize
 
-# Caminhos
-MODELO_SENTENCE_PATH = "modelo/modelo_finetunado_sarcasmo"
-CLASSIFICADOR_PATH = os.path.join(MODELO_SENTENCE_PATH, "classificador_logreg.pkl")
-CSV_PATH = "dados/textos.csv"
-CSV_SAIDA = "dados/resultados_sarcasmo.csv"
+DATA_PATH = "dados/textos.csv"
+RESULT_PATH = "dados/textos_resultado.csv"
 
+df = pd.read_csv(DATA_PATH, sep=",", quotechar='"', engine="python", on_bad_lines="skip")
+df.columns = ["original", "simplified"]
 
-def carregar_modelos():
-    print("🔹 Carregando modelo de embeddings...")
-    model = SentenceTransformer(MODELO_SENTENCE_PATH)
+print("Loading models...")
+nlp = spacy.load("pt_core_news_sm")
+rouge = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
+embedder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
-    print("🔹 Carregando classificador...")
-    clf = joblib.load(CLASSIFICADOR_PATH)
-    return model, clf
+def compute_bleu(orig, simp):
+    """Compute BLEU using sacreBLEU."""
+    return sacrebleu.corpus_bleu([simp], [[orig]]).score
 
+def compute_bert_score(orig_list, simp_list):
+    """Compute BERTScore for all pairs (vectorized)."""
+    P, R, F1 = bertscore(simp_list, orig_list, lang="pt", verbose=True)
+    return F1.tolist()
 
-def calcular_prob_sarcasmo(model, clf, textos):    
-    # Cria embeddings em lote
-    embedding = model.encode(textos, convert_to_tensor=True).cpu().tolist()
-    # Calcula as probabilidades para todos os textos
-    probas = clf.predict_proba(embedding)[:, 1]
-    return probas    
+def compute_fkgl(text):
+    """Compute Flesch-Kincaid Grade Level (readability)."""
+    return textstat.flesch_kincaid_grade(text)
 
-def main():
-    if not os.path.exists(MODELO_SENTENCE_PATH):
-        raise FileNotFoundError("❌ Pasta do modelo SentenceTransformer não encontrada.")
-    if not os.path.exists(CLASSIFICADOR_PATH):
-        raise FileNotFoundError("❌ Arquivo do classificador não encontrado.")
-    if not os.path.exists(CSV_PATH):
-        raise FileNotFoundError("❌ Arquivo CSV de entrada não encontrado.")
+def count_sentences(text):
+    """Count sentences using spaCy."""
+    return len(list(nlp(text).sents))
 
-    model, clf = carregar_modelos()
+def compute_rougeL(orig, simp):
+    """Compute ROUGE-L (Longest Common Subsequence)."""
+    return rouge.score(orig, simp)["rougeL"].fmeasure
 
-    print("Lendo planilha...")
-    df = pd.read_csv(CSV_PATH, encoding="utf-8")
+def compute_cosine_similarity(orig, simp):
+    """Compute semantic similarity using Sentence-BERT embeddings."""
+    emb1 = embedder.encode(orig, convert_to_tensor=True)
+    emb2 = embedder.encode(simp, convert_to_tensor=True)
+    return float(util.cos_sim(emb1, emb2).cpu().numpy())
 
-    col_antes = "frase_original"
-    col_depois = "frase_reescrita"
+print("Computing metrics...")
 
-    # --- Calcular probabilidades --- #
-    print("🔹 Calculando probabilidade de sarcasmo (antes)...")
-    df["prob_sarcasmo_antes"] = calcular_prob_sarcasmo(model, clf, df[col_antes].astype(str).tolist())
+# BLEU
+df["BLEU"] = [compute_bleu(o, s) for o, s in tqdm(zip(df["original"], df["simplified"]), total=len(df), desc="BLEU")]
 
-    print("🔹 Calculando probabilidade de sarcasmo (depois)...")
-    df["prob_sarcasmo_depois"] = calcular_prob_sarcasmo(model, clf, df[col_depois].astype(str).tolist())
+# BERTScore
+df["BERTScore_F1"] = compute_bert_score(df["original"].tolist(), df["simplified"].tolist())
 
-    # --- Salvar resultados --- #
-    df.to_csv(CSV_SAIDA, index=False)
-    print(f"✅ Resultados salvos em: {CSV_SAIDA}")
+# FKGL
+df["FKGL_original"] = df["original"].apply(compute_fkgl)
+df["FKGL_simplified"] = df["simplified"].apply(compute_fkgl)
+df["FKGL_diff"] = df["FKGL_original"] - df["FKGL_simplified"]
 
+# Structural change (SAMSA proxy)
+df["num_sent_original"] = df["original"].apply(count_sentences)
+df["num_sent_simplified"] = df["simplified"].apply(count_sentences)
+df["structural_change"] = df["num_sent_simplified"] - df["num_sent_original"]
 
-if __name__ == "__main__":
-    main()
+# ROUGE-L
+df["ROUGE-L"] = [compute_rougeL(o, s) for o, s in tqdm(zip(df["original"], df["simplified"]), total=len(df), desc="ROUGE-L")]
+
+# Cosine similarity
+df["Cosine_Similarity"] = [compute_cosine_similarity(o, s) for o, s in tqdm(zip(df["original"], df["simplified"]), total=len(df), desc="Cosine")]
+
+numeric_cols = ["BLEU", "BERTScore_F1", "FKGL_original", "FKGL_simplified",
+                "FKGL_diff", "structural_change", "ROUGE-L", "Cosine_Similarity"]
+
+df[numeric_cols] = df[numeric_cols].applymap(lambda x: round(x, 4) if isinstance(x, (float, int)) else x)
+
+os.makedirs(os.path.dirname(RESULT_PATH), exist_ok=True)
+df.to_csv(RESULT_PATH, index=False)
+print(f"\n✅ Metrics saved to: {RESULT_PATH}")
+
+print("\n=== AVERAGE SCORES ===")
+for metric in numeric_cols:
+    print(f"{metric}: {df[metric].mean():.4f}")
+
+sns.set(style="whitegrid")
+
+# Boxplot of distributions
+plt.figure(figsize=(10,6))
+df_melt = df[numeric_cols].melt(var_name="Metric", value_name="Score")
+sns.boxplot(x="Metric", y="Score", data=df_melt)
+plt.title("Distribution of Evaluation Metrics")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.savefig("dados/metrics_boxplot.png")
+plt.show()
+
+# Correlation matrix
+plt.figure(figsize=(8,6))
+corr = df[numeric_cols].corr()
+sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f")
+plt.title("Correlation Matrix of Evaluation Metrics")
+plt.tight_layout()
+plt.savefig("dados/metrics_corr.png")
+plt.show()
