@@ -1,3 +1,4 @@
+(sim, eu escrevi errado sarcasmo, mas agora é muito rolê mudar o nome do repo)
 # Instalações para avaliação com outras métricass
 
 pip install sacrebleu bert-score easse nltk pandas textstat spacy
