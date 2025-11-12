@@ -1,7 +1,7 @@
 import pandas as pd
 
 # Caminhos de entrada e saída
-avaliacoes_path = "dados/avaliacoes_manuais.csv"
+avaliacoes_path = "dados/avaliacoes_rows.csv"
 output_path_frases = "dados/avaliacoes_agrupadas.csv"
 output_path_geral = "dados/avaliacoes_geral.csv"
 
