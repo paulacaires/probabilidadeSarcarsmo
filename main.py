@@ -132,7 +132,7 @@ for metric in numeric_cols:
     plt.figure(figsize=(6, 4))
     sns.boxplot(y=col_data, color="skyblue", fliersize=4, width=0.4)
     plt.title(f"Distribuição da métrica: {metric}", fontsize=12, fontweight="bold")
-    plt.ylabel("Valor", fontsize=11)
+    plt.ylabel("Value", fontsize=11)
     plt.xlabel("")  # remove o eixo x (decorativo)
     plt.tight_layout()
 
@@ -150,56 +150,53 @@ print("\n📊 Gerando painel único com todos os boxplots...")
 
 sns.set(style="whitegrid", palette="muted")
 
-# Número de métricas e configuração da grade
-n_metrics = len(numeric_cols)
-cols = 3  # número de colunas na grade
-rows = (n_metrics + cols - 1) // cols  # calcula linhas automaticamente
+# Ordem personalizada das métricas
+ordered_metrics = [
+    "GLEU",
+    "BERTScore_F1",
+    "structural_change",
+    "FKGL_original",
+    "FKGL_simplified",
+    "FKGL_diff"
+]
 
-# Cria a figura
-fig, axes = plt.subplots(rows, cols, figsize=(15, 5 * rows))
-axes = axes.flatten()  # facilita o acesso aos subplots
+# Labels customizados
+labels = {
+    "GLEU": "GLEU",
+    "BERTScore_F1": "BERTScore (F1)",
+    "structural_change": "Structural Change",
+    "FKGL_original": "FKLG (original)",
+    "FKGL_simplified": "FKLG (rewritten)",
+    "FKGL_diff": "FKLG (difference)"
+}
 
-# === BOXPLOTS COM ESCALAS INDEPENDENTES (todos em uma imagem) ===
-print("\n📊 Gerando painel único com todos os boxplots...")
+# Grade fixa: 2 linhas × 3 colunas
+rows = 2
+cols = 3
 
-sns.set(style="whitegrid", palette="muted")
-
-# Número de métricas e configuração da grade
-n_metrics = len(numeric_cols)
-cols = 3  # número de colunas na grade
-rows = (n_metrics + cols - 1) // cols  # calcula número de linhas automaticamente
-
-# Cria figura e subplots
-fig, axes = plt.subplots(rows, cols, figsize=(15, 5 * rows))
+fig, axes = plt.subplots(rows, cols, figsize=(15, 10))
 axes = axes.flatten()
 
-# Gera um boxplot por métrica
-for i, metric in enumerate(numeric_cols):
+for i, metric in enumerate(ordered_metrics):
     col_data = pd.to_numeric(df[metric], errors="coerce").dropna()
-    
+
     if col_data.empty:
         axes[i].text(0.5, 0.5, f"Sem dados\n({metric})", ha="center", va="center")
         axes[i].set_axis_off()
         continue
-    
+
     sns.boxplot(y=col_data, ax=axes[i], color="skyblue", fliersize=4, width=0.4)
-    axes[i].set_title(metric, fontsize=12, fontweight="bold", pad=10)
+    axes[i].set_title(labels[metric], fontsize=12, fontweight="bold", pad=10)
     axes[i].set_xlabel("")
-    axes[i].set_ylabel("Valor", fontsize=11)
+    axes[i].set_ylabel("")
 
-# Remove eixos vazios (se sobrar espaço)
-for j in range(i + 1, len(axes)):
-    axes[j].set_visible(False)
+# Ajuste do espaçamento
+plt.tight_layout(h_pad=2.5, w_pad=2.0)
 
-# Ajusta espaçamento entre linhas e colunas
-plt.tight_layout(h_pad=2.5, w_pad=2.0)  # aumenta o espaço vertical (h_pad)
-# ou, se quiser mais controle:
-# fig.subplots_adjust(hspace=0.5, wspace=0.3)
-
-# Salvar e exibir
 panel_path = os.path.join("dados", "boxplots", "painel_boxplots_todas_metricas.png")
 os.makedirs(os.path.dirname(panel_path), exist_ok=True)
 plt.savefig(panel_path, dpi=300)
 plt.show()
 
 print(f"✅ Painel salvo em: {panel_path}")
+
